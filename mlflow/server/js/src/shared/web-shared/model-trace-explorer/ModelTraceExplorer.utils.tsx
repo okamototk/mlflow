@@ -1196,28 +1196,24 @@ export const getDefaultActiveTab = (
  * to a map format.
  */
 export const convertOtelAttributesToMap = (modelTraceSpan: ModelTraceSpan): ModelTraceSpan => {
-   const getValue = (value: any) => {
-     if (!isObject(value)) {
-       return value;
-     }
-
-     // OTLP JSON can use either snake_case or camelCase for typed values depending
-     // on the producer / serialization.
-     if ('string_value' in value) {
-       return value.string_value;
-     }
-     if ('bool_value' in value) {
-       return value.bool_value;
-     }
-     if ('int_value' in value) {
-       return value.int_value;
-     }
-     if ('double_value' in value) {
-       return value.double_value;
-     }
-
-     return value;
-   };
+  const getValue = (value: any) => {
+    if (!isObject(value)) {
+      return value;
+    }
+    if ('string_value' in value) {
+      return value.string_value;
+    }
+    if ('bool_value' in value) {
+      return value.bool_value;
+    }
+    if ('int_value' in value) {
+      return value.int_value;
+    }
+    if ('double_value' in value) {
+      return value.double_value;
+    }
+    return value;
+  };
 
 
   const convertAttributes = (attributes: any) => {
