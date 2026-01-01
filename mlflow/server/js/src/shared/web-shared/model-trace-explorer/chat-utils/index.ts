@@ -14,7 +14,12 @@ export { normalizeLangchainChatInput, normalizeLangchainChatResult } from './lan
 export { normalizeLlamaIndexChatInput, normalizeLlamaIndexChatResponse } from './llamaindex';
 export { normalizeDspyChatInput, normalizeDspyChatOutput } from './dspy';
 export { normalizeVercelAIChatInput, normalizeVercelAIChatOutput } from './vercelai';
-export { isOtelGenAIChatMessage, normalizeOtelGenAIChatMessage } from './otel';
+export {
+  isOtelGenAIChatMessage,
+  normalizeOtelGenAIChatMessage,
+  extractTextFromOtelGenAIMessages,
+  extractRoleLabeledTextFromOtelGenAIMessages,
+} from './otel';
 export { normalizePydanticAIChatInput, normalizePydanticAIChatOutput } from './pydanticai';
 export {
   normalizeVoltAgentChatInput,

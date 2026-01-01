@@ -1,6 +1,6 @@
 import { describe, test, jest, expect } from '@jest/globals';
 import { flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
-import { render, screen } from '../../../common/utils/TestUtils.react18';
+import { renderWithDesignSystem, screen } from '../../../common/utils/TestUtils.react18';
 import { TracesViewTableResponsePreviewCell } from './TracesViewTablePreviewCell';
 import { Table, TableCell, TableRow } from '@databricks/design-system';
 import userEvent from '@testing-library/user-event';
@@ -45,7 +45,7 @@ describe('ExperimentViewTracesTablePreviewCell', () => {
       );
     };
 
-    render(<Component />);
+    renderWithDesignSystem(<Component />);
   };
 
   test('it should expand short values and request more data', async () => {
@@ -78,5 +78,19 @@ describe('ExperimentViewTracesTablePreviewCell', () => {
     const unescapedJson = '{"model_input":"🙂"}';
     renderTable(escapedJson);
     expect(screen.getByText(unescapedJson, { collapseWhitespace: false })).toBeInTheDocument();
+  });
+
+  test('it should render OTEL chat roles with icons/labels', async () => {
+    const otelOutputs = [
+      {
+        role: 'assistant',
+        parts: [{ type: 'text', content: 'Here is a plan.' }],
+      },
+    ];
+
+    renderTable(JSON.stringify(otelOutputs));
+
+    expect(screen.getByText(/Assistant/)).toBeInTheDocument();
+    expect(screen.getByText('Here is a plan.')).toBeInTheDocument();
   });
 });

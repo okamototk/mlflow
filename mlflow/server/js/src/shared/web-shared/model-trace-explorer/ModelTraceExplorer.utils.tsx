@@ -70,6 +70,8 @@ import {
   normalizeVoltAgentChatInput,
   normalizeVoltAgentChatOutput,
   synthesizeVoltAgentChatMessages,
+  extractTextFromOtelGenAIMessages,
+  extractRoleLabeledTextFromOtelGenAIMessages,
 } from './chat-utils';
 import { normalizeOpenAIResponsesStreamingOutput } from './chat-utils/openai';
 import { TOKEN_USAGE_METADATA_KEY } from './constants';
@@ -149,11 +151,7 @@ export function getDisplayNameForSpanType(spanType: ModelSpanType | string): str
   }
 }
 
-export function tryDeserializeAttribute(value: any): any {
-  if (!isString(value)) {
-    return value;
-  }
-
+export function tryDeserializeAttribute(value: string): any {
   try {
     return JSON.parse(value);
   } catch (e) {
@@ -442,14 +440,19 @@ export const normalizeNewSpanData = (
   let inputs = tryDeserializeAttribute(span.attributes?.['mlflow.spanInputs']);
   let outputs = tryDeserializeAttribute(span.attributes?.['mlflow.spanOutputs']);
 
-  // OTel GenAI semantic conventions may log chat messages in span events (rather than span attributes).
+  // OTel GenAI semantic conventions may log chat messages outside of the MLflow-native fields.
   // Populate inputs/outputs from `gen_ai.*.messages` when the MLflow-native fields are missing.
+  //
+  // Note: Some exporters log these messages on span events, while others attach them directly
+  // as span attributes (both cases are supported here).
   if (isNil(inputs)) {
-    const inputMessages = getFirstEventAttributeValue(span.events, 'gen_ai.input.messages');
+    const inputMessages = span.attributes?.['gen_ai.input.messages'] ??
+      getFirstEventAttributeValue(span.events, 'gen_ai.input.messages');
     inputs = tryDeserializeAttribute(inputMessages);
   }
   if (isNil(outputs)) {
-    const outputMessages = getFirstEventAttributeValue(span.events, 'gen_ai.output.messages');
+    const outputMessages = span.attributes?.['gen_ai.output.messages'] ??
+      getFirstEventAttributeValue(span.events, 'gen_ai.output.messages');
     outputs = tryDeserializeAttribute(outputMessages);
   }
 
@@ -980,7 +983,12 @@ export const isRawModelTraceChatMessage = (message: any): message is RawModelTra
   }
 
   return (
-    message.role === 'user' || message.role === 'assistant' || message.role === 'system' || message.role === 'tool'
+    message.role === 'user' ||
+    message.role === 'assistant' ||
+    message.role === 'system' ||
+    message.role === 'tool' ||
+    message.role === 'function' ||
+    message.role === 'developer'
   );
 };
 
@@ -1096,8 +1104,14 @@ export const normalizeConversation = (input: any, messageFormat?: string): Model
         if (voltAgentMessages) return voltAgentMessages;
         break;
       default:
-        // Fallback to OpenAI chat format
-        const chatMessages = normalizeOpenAIChatInput(input) ?? normalizeOpenAIChatResponse(input);
+        // If message format is not specified, fall back to OpenAI formats.
+        // Note: this intentionally includes OpenAI "responses" formats, not just ChatCompletions.
+        const chatMessages =
+          normalizeOpenAIChatInput(input) ??
+          normalizeOpenAIChatResponse(input) ??
+          normalizeOpenAIResponsesOutput(input) ??
+          normalizeOpenAIResponsesInput(input) ??
+          normalizeOpenAIResponsesStreamingOutput(input);
         if (chatMessages) return chatMessages;
         break;
     }
@@ -1110,6 +1124,234 @@ export const normalizeConversation = (input: any, messageFormat?: string): Model
   } catch (e) {
     return null;
   }
+};
+
+/**
+ * Attempt to extract chat messages for Summary view rendering.
+ *
+ * When inputs/outputs are chat-like payloads, Summary view should render them as
+ * messages (with role icons) instead of raw JSON.
+ */
+export const extractChatMessagesForSummary = (
+  inputOrOutput: unknown,
+  messageFormat?: string,
+): RawModelTraceChatMessage[] | null => {
+  const extractMessages = (value: unknown, depth = 0): ModelTraceChatMessage[] | null => {
+    // Prefer parsing stringified JSON first. This avoids misclassifying serialized payloads
+    // (e.g. trace metadata strings) as plain-text prompts.
+    if (isString(value)) {
+      try {
+        return extractMessages(JSON.parse(value), depth + 1);
+      } catch {
+        // Only treat raw strings as chat at the top-level. Nested strings (e.g. random
+        // metadata fields like "system_prompt") should not be interpreted as prompts.
+        if (depth > 0) {
+          return null;
+        }
+      }
+    }
+
+    const direct = normalizeConversation(value, messageFormat);
+    if (direct && direct.length > 0) {
+      return direct;
+    }
+
+    if (depth >= 2) {
+      return null;
+    }
+
+    if (isObject(value)) {
+      for (const nestedValue of Object.values(value)) {
+        const nestedMessages = extractMessages(nestedValue, depth + 1);
+        if (nestedMessages) {
+          return nestedMessages;
+        }
+      }
+    }
+
+    return null;
+  };
+
+  const messages = extractMessages(inputOrOutput);
+  if (!messages || messages.length === 0) {
+    return null;
+  }
+
+  const hasNonEmptyContent = (content: unknown): content is string =>
+    typeof content === 'string' && content.trim().length > 0;
+
+  const shouldIncludeMessage = (message: ModelTraceChatMessage) => {
+    const isSupportedRole =
+      message.role === 'system' ||
+      message.role === 'user' ||
+      message.role === 'assistant' ||
+      message.role === 'tool' ||
+      message.role === 'function' ||
+      message.role === 'developer';
+
+    return (
+      isSupportedRole &&
+      (hasNonEmptyContent(message.content) ||
+        (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) ||
+        hasNonEmptyContent(message.tool_call_id))
+    );
+  };
+
+  const filtered = messages.filter(shouldIncludeMessage);
+
+  if (filtered.length === 0) {
+    return null;
+  }
+
+  return filtered.map((message) => ({
+    type: 'message',
+    role: message.role,
+    ...(message.name && { name: message.name }),
+    ...(message.content && { content: message.content }),
+    ...(message.tool_calls && { tool_calls: message.tool_calls }),
+    ...(message.tool_call_id && { tool_call_id: message.tool_call_id }),
+  }));
+};
+
+export const extractChatContentText = (
+  inputOrOutput: unknown,
+  type: 'inputs' | 'outputs',
+  messageFormat?: string,
+): string | null => {
+  const extractOtelText = (value: unknown, depth = 0): string | null => {
+    const directText = extractTextFromOtelGenAIMessages(value);
+    if (directText) {
+      return directText;
+    }
+
+    if (depth >= 2) {
+      return null;
+    }
+
+    if (isString(value)) {
+      try {
+        return extractOtelText(JSON.parse(value), depth + 1);
+      } catch {
+        return null;
+      }
+    }
+
+    if (isObject(value)) {
+      for (const nestedValue of Object.values(value)) {
+        const nestedText = extractOtelText(nestedValue, depth + 1);
+        if (nestedText) {
+          return nestedText;
+        }
+      }
+    }
+
+    return null;
+  };
+
+  const otelText = extractOtelText(inputOrOutput);
+  if (otelText) {
+    return otelText;
+  }
+
+  const messages = normalizeConversation(inputOrOutput, messageFormat);
+  if (!messages) {
+    return null;
+  }
+
+  const preferredRole = type === 'inputs' ? 'user' : 'assistant';
+  const hasNonEmptyContent = (content: unknown): content is string =>
+    typeof content === 'string' && content.trim().length > 0;
+
+  const preferredMessages = messages.filter((message) => message.role === preferredRole && hasNonEmptyContent(message.content));
+  if (preferredMessages.length > 0) {
+    return preferredMessages[preferredMessages.length - 1].content as string;
+  }
+
+  const anyContentMessages = messages.filter((message) => hasNonEmptyContent(message.content));
+  if (anyContentMessages.length > 0) {
+    return anyContentMessages[anyContentMessages.length - 1].content as string;
+  }
+
+  return null;
+};
+
+/**
+ * Like `extractChatContentText`, but when the payload contains OTEL GenAI
+ * messages (`{ role, parts: [{ type: 'text', content }] }`) we format it as
+ * role-labeled plaintext for easier scanning in Summary view.
+ */
+export const extractChatContentTextForSummary = (
+  inputOrOutput: unknown,
+  type: 'inputs' | 'outputs',
+  messageFormat?: string,
+): string | null => {
+  const extractOtelRoleLabeledText = (value: unknown, depth = 0): string | null => {
+    const directText = extractRoleLabeledTextFromOtelGenAIMessages(value);
+    if (directText) {
+      return directText;
+    }
+
+    if (depth >= 2) {
+      return null;
+    }
+
+    if (isString(value)) {
+      try {
+        return extractOtelRoleLabeledText(JSON.parse(value), depth + 1);
+      } catch {
+        return null;
+      }
+    }
+
+    if (isObject(value)) {
+      for (const nestedValue of Object.values(value)) {
+        const nestedText = extractOtelRoleLabeledText(nestedValue, depth + 1);
+        if (nestedText) {
+          return nestedText;
+        }
+      }
+    }
+
+    return null;
+  };
+
+  const otelRoleLabeledText = extractOtelRoleLabeledText(inputOrOutput);
+  if (otelRoleLabeledText) {
+    return otelRoleLabeledText;
+  }
+
+  return extractChatContentText(inputOrOutput, type, messageFormat);
+};
+
+/**
+ * Create Summary view data for an inputs/outputs payload.
+ *
+ * This is used by multiple Summary renderers (Trace summary, session view, etc.)
+ * to ensure consistent chat message extraction and rendering.
+ */
+export const createSummaryInputsOutputsData = (
+  inputOrOutput: unknown,
+  type: 'inputs' | 'outputs',
+  messageFormat?: string,
+): { key: string; value: string }[] => {
+  const extractedMessages = extractChatMessagesForSummary(inputOrOutput, messageFormat);
+  if (extractedMessages) {
+    return [{ key: '', value: JSON.stringify(extractedMessages) }];
+  }
+
+  const extractedText = extractChatContentTextForSummary(inputOrOutput, type, messageFormat);
+  if (extractedText) {
+    return [
+      {
+        key: '',
+        value: JSON.stringify([
+          { type: 'message', role: type === 'inputs' ? 'user' : 'assistant', content: extractedText },
+        ]),
+      },
+    ];
+  }
+
+  return createListFromObject(inputOrOutput as any).filter(({ value }) => value !== 'null');
 };
 
 export const prettyPrintToolCall = (toolCall: ModelTraceToolCall): ModelTraceToolCall => {

@@ -7,10 +7,8 @@ import { ModelTraceExplorerSummaryIntermediateNode } from './ModelTraceExplorerS
 import { ModelTraceExplorerSummarySection } from './ModelTraceExplorerSummarySection';
 import { ModelTraceExplorerSummaryViewExceptionsSection } from './ModelTraceExplorerSummaryViewExceptionsSection';
 import type { ModelTraceExplorerRenderMode, ModelTraceSpanNode } from '../ModelTrace.types';
-import { createListFromObject, getSpanExceptionEvents } from '../ModelTraceExplorer.utils';
+import { createSummaryInputsOutputsData, getSpanExceptionEvents } from '../ModelTraceExplorer.utils';
 import { AssessmentPaneToggle } from '../assessments-pane/AssessmentPaneToggle';
-import { useModelTraceExplorerViewState } from '../ModelTraceExplorerViewStateContext';
-import { ModelTraceExplorerFieldRenderer } from '../field-renderers/ModelTraceExplorerFieldRenderer';
 
 export const SUMMARY_SPANS_MIN_WIDTH = 400;
 
@@ -33,8 +31,8 @@ export const ModelTraceExplorerSummarySpans = ({
   const hasIntermediateNodes = intermediateNodes.length > 0;
   const hasExceptions = exceptions.length > 0;
 
-  const inputList = createListFromObject(rootInputs).filter(({ value }) => value !== 'null');
-  const outputList = createListFromObject(rootOutputs).filter(({ value }) => value !== 'null');
+  const inputList = createSummaryInputsOutputsData(rootInputs, 'inputs', chatMessageFormat);
+  const outputList = createSummaryInputsOutputsData(rootOutputs, 'outputs', chatMessageFormat);
 
   return (
     <div
@@ -106,8 +104,8 @@ export const ModelTraceExplorerSummarySpans = ({
         sectionKey="summary-outputs"
         data={outputList}
         renderMode={renderMode}
-        chatMessageFormat={chatMessageFormat ?? 'openai'}
-      />
+        chatMessageFormat={chatMessageFormat}
+       />
     </div>
   );
 };

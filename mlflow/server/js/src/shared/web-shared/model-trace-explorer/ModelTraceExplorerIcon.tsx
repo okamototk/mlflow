@@ -1,5 +1,6 @@
 import {
   ModelsIcon,
+  AssistantIcon,
   ConnectIcon,
   FileDocumentIcon,
   useDesignSystemTheme,
@@ -56,6 +57,7 @@ export const ModelTraceExplorerIcon = ({
     [ModelIconType.CHAIN]: <ChainIcon color={iconColor} />,
     [ModelIconType.USER]: <UserIcon color={iconColor} />,
     [ModelIconType.SYSTEM]: <GearIcon color={iconColor} />,
+    [ModelIconType.ASSISTANT]: <AssistantIcon color={iconColor} />,
     [ModelIconType.SAVE]: <SaveIcon color={iconColor} />,
   };
 
@@ -73,6 +75,7 @@ export const ModelTraceExplorerIcon = ({
       backgroundColor = theme.isDarkMode ? theme.colors.green800 : theme.colors.green100;
       break;
     case ModelIconType.MODELS:
+    case ModelIconType.ASSISTANT:
       color = theme.isDarkMode ? theme.colors.blue500 : theme.colors.turquoise;
       tooltipColor = theme.isDarkMode ? theme.colors.turquoise : theme.colors.blue500;
       backgroundColor = theme.isDarkMode ? theme.colors.blue800 : theme.colors.blue100;

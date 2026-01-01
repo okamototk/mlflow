@@ -17,6 +17,8 @@ const getRoleIcon = (role: string) => {
       return <ModelTraceExplorerIcon type={ModelIconType.SYSTEM} />;
     case 'user':
       return <ModelTraceExplorerIcon type={ModelIconType.USER} />;
+    case 'assistant':
+      return <ModelTraceExplorerIcon type={ModelIconType.ASSISTANT} />;
     case 'tool':
     case 'function':
       return <ModelTraceExplorerIcon type={ModelIconType.WRENCH} />;

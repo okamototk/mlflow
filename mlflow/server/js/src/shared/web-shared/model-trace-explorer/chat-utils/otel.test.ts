@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import { normalizeConversation } from '../ModelTraceExplorer.utils';
+import { extractTextFromOtelGenAIMessages } from './otel';
 
 describe('normalizeConversation (OTEL GenAI)', () => {
   it('normalizes simple text messages', () => {
@@ -63,5 +64,33 @@ describe('normalizeConversation (OTEL GenAI)', () => {
         content: expect.stringContaining('tempC'),
       }),
     );
+  });
+});
+
+describe('extractTextFromOtelGenAIMessages', () => {
+  it('extracts only text parts', () => {
+    const input = [
+      {
+        role: 'assistant',
+        parts: [
+          { type: 'text', content: 'Let me check.' },
+          { type: 'tool_call', id: 'c1', name: 'get_weather', arguments: { city: 'NYC' } },
+        ],
+      },
+      {
+        role: 'assistant',
+        parts: [{ type: 'tool_call_response', id: 'c1', response: { tempC: 22 } }],
+      },
+      {
+        role: 'assistant',
+        parts: [{ type: 'text', content: 'It is 22C.' }],
+      },
+    ];
+
+    expect(extractTextFromOtelGenAIMessages(input)).toBe('Let me check.\nIt is 22C.');
+  });
+
+  it('returns null for non-OTEL messages', () => {
+    expect(extractTextFromOtelGenAIMessages({ messages: [] })).toBeNull();
   });
 });

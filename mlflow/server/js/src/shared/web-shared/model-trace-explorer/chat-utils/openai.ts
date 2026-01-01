@@ -147,6 +147,13 @@ export const normalizeOpenAIResponsesInput = (obj: unknown): ModelTraceChatMessa
   const input: unknown = get(obj, 'input') ?? get(obj, 'request.input') ?? obj;
 
   if (isString(input)) {
+    // Avoid treating serialized JSON payloads as plain-text prompts.
+    // Those should be parsed and rendered as structured data instead.
+    const trimmed = input.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      return null;
+    }
+
     const message = prettyPrintChatMessage({ type: 'message', content: input, role: 'user' });
     return message && [message];
   }

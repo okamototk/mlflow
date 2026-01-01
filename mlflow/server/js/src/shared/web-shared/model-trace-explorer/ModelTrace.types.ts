@@ -38,6 +38,7 @@ export enum ModelIconType {
   CHAIN = 'chain',
   USER = 'user',
   SYSTEM = 'system',
+  ASSISTANT = 'assistant',
   SAVE = 'save',
 }
 

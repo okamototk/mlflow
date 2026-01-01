@@ -1,14 +1,25 @@
-import { Button, ChevronDownIcon, ChevronRightIcon, useDesignSystemTheme } from '@databricks/design-system';
+import { Button, ChevronDownIcon, ChevronRightIcon, Typography, useDesignSystemTheme } from '@databricks/design-system';
 import { isString } from 'lodash';
 import { useCallback, useMemo, useState } from 'react';
+import { FormattedMessage } from 'react-intl';
 import { MlflowService } from '../../sdk/MlflowService';
 import Utils from '../../../common/utils/Utils';
 import { ErrorWrapper } from '../../../common/utils/ErrorWrapper';
 import type { CellContext, ColumnDefTemplate } from '@tanstack/react-table';
 import type { ModelTraceInfoWithRunName } from './hooks/useExperimentTraces';
-import { getTraceInfoInputs, getTraceInfoOutputs, isTraceMetadataPossiblyTruncated } from './TracesView.utils';
+import {
+  getTraceInfoInputs,
+  getTraceInfoInputsRaw,
+  getTraceInfoOutputs,
+  getTraceInfoOutputsRaw,
+  isTraceMetadataPossiblyTruncated,
+} from './TracesView.utils';
 import { CodeSnippet } from '@databricks/web-shared/snippet';
 import { css } from '@emotion/react';
+
+import { ModelTraceExplorerIcon } from '../../../shared/web-shared/model-trace-explorer/ModelTraceExplorerIcon';
+import { ModelIconType } from '../../../shared/web-shared/model-trace-explorer/ModelTrace.types';
+import { extractChatMessagesForSummary } from '../../../shared/web-shared/model-trace-explorer/ModelTraceExplorer.utils';
 
 const clampedLinesCss = css`
   display: -webkit-box;
@@ -16,12 +27,136 @@ const clampedLinesCss = css`
   -webkit-box-orient: vertical;
 `;
 
+type ChatRole = 'system' | 'user' | 'assistant' | 'tool' | 'function' | 'developer';
+
+type RoleMessage = {
+  role: ChatRole;
+  content: string;
+};
+
+const getRoleIconType = (role: ChatRole) => {
+  switch (role) {
+    case 'system':
+      return ModelIconType.SYSTEM;
+    case 'user':
+      return ModelIconType.USER;
+    case 'assistant':
+      return ModelIconType.ASSISTANT;
+    case 'tool':
+    case 'function':
+      return ModelIconType.WRENCH;
+    case 'developer':
+      return ModelIconType.MODELS;
+  }
+};
+
+const RoleLabel = ({ role }: { role: ChatRole }) => {
+  switch (role) {
+    case 'system':
+      return (
+        <FormattedMessage
+          defaultMessage="System"
+          description="Label for system role in trace table preview"
+        />
+      );
+    case 'user':
+      return (
+        <FormattedMessage
+          defaultMessage="User"
+          description="Label for user role in trace table preview"
+        />
+      );
+    case 'assistant':
+      return (
+        <FormattedMessage
+          defaultMessage="Assistant"
+          description="Label for assistant role in trace table preview"
+        />
+      );
+    case 'tool':
+      return (
+        <FormattedMessage defaultMessage="Tool" description="Label for tool role in trace table preview" />
+      );
+    case 'function':
+      return (
+        <FormattedMessage
+          defaultMessage="Function"
+          description="Label for function role in trace table preview"
+        />
+      );
+    case 'developer':
+      return (
+        <FormattedMessage
+          defaultMessage="Developer"
+          description="Label for developer role in trace table preview"
+        />
+      );
+  }
+};
+
+const tryExtractRoleMessages = (rawValue?: string | null): RoleMessage[] | null => {
+  if (!rawValue) {
+    return null;
+  }
+
+  const extractedMessages = extractChatMessagesForSummary(rawValue);
+  if (!extractedMessages) {
+    return null;
+  }
+
+  return extractedMessages.map((message) => ({
+    role: message.role,
+    content: message.content ? String(message.content) : '',
+  }));
+};
+
+const RoleMessageList = ({ messages, isCompact }: { messages: RoleMessage[]; isCompact: boolean }) => {
+  const { theme } = useDesignSystemTheme();
+
+  // Match existing behavior: show the most recent 3 items in compact mode.
+  const visibleMessages = isCompact ? messages.slice(-3) : messages;
+
+  return (
+    <div css={{ display: 'flex', flexDirection: 'column', gap: theme.spacing.xs }}>
+      {visibleMessages.map((message, index) => (
+        <div
+          key={index}
+          css={{
+            display: 'flex',
+            alignItems: isCompact ? 'center' : 'flex-start',
+            gap: theme.spacing.xs,
+            minWidth: 0,
+          }}
+        >
+          <ModelTraceExplorerIcon type={getRoleIconType(message.role)} />
+          <Typography.Text bold css={{ flexShrink: 0 }}>
+            <RoleLabel role={message.role} />:
+          </Typography.Text>
+          <Typography.Text
+            css={{
+              minWidth: 0,
+              overflow: isCompact ? 'hidden' : undefined,
+              textOverflow: isCompact ? 'ellipsis' : undefined,
+              whiteSpace: isCompact ? 'nowrap' : 'pre-wrap',
+              wordBreak: 'break-word',
+            }}
+          >
+            {message.content}
+          </Typography.Text>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const TracesViewTablePreviewCell = ({
   value,
+  rawValue,
   traceId,
   previewFieldName,
 }: {
   value: string;
+  rawValue?: string;
   traceId: string;
   previewFieldName: 'request' | 'response';
 }) => {
@@ -51,7 +186,8 @@ const TracesViewTablePreviewCell = ({
     setLoading(false);
   }, [previewFieldName, traceId]);
 
-  const valuePossiblyTruncated = isTraceMetadataPossiblyTruncated(value);
+  // Use raw metadata length for truncation detection.
+  const valuePossiblyTruncated = isTraceMetadataPossiblyTruncated(rawValue ?? value);
 
   const expand = useCallback(async () => {
     if (!fullData && valuePossiblyTruncated) {
@@ -63,6 +199,14 @@ const TracesViewTablePreviewCell = ({
   const collapse = useCallback(() => {
     setIsExpanded(false);
   }, []);
+
+  const collapsedRoleMessages = useMemo(() => tryExtractRoleMessages(rawValue), [rawValue]);
+  const expandedRoleMessages = useMemo(
+    () => tryExtractRoleMessages(fullData ?? rawValue),
+    [fullData, rawValue],
+  );
+
+  const content = isExpanded ? fullData ?? value : value;
 
   return (
     <div css={{ display: 'flex', gap: theme.spacing.xs }}>
@@ -85,10 +229,21 @@ const TracesViewTablePreviewCell = ({
             overflow: 'hidden',
             textOverflow: 'ellipsis',
           },
-          !isExpanded && clampedLinesCss,
+          // When rendering per-message rows, truncation is handled by limiting rows.
+          !isExpanded && !collapsedRoleMessages && clampedLinesCss,
         ]}
       >
-        {isExpanded ? <ExpandedParamCell value={fullData ?? value} /> : value}
+        {isExpanded ? (
+          expandedRoleMessages ? (
+            <RoleMessageList messages={expandedRoleMessages} isCompact={false} />
+          ) : (
+            <ExpandedParamCell value={content} />
+          )
+        ) : collapsedRoleMessages ? (
+          <RoleMessageList messages={collapsedRoleMessages} isCompact />
+        ) : (
+          content
+        )}
       </div>
     </div>
   );
@@ -136,6 +291,7 @@ export const TracesViewTableRequestPreviewCell: ColumnDefTemplate<CellContext<Mo
     previewFieldName="request"
     traceId={original.request_id || ''}
     value={getTraceInfoInputs(original) || ''}
+    rawValue={getTraceInfoInputsRaw(original) || ''}
   />
 );
 
@@ -146,5 +302,6 @@ export const TracesViewTableResponsePreviewCell: ColumnDefTemplate<CellContext<M
     previewFieldName="response"
     traceId={original.request_id || ''}
     value={getTraceInfoOutputs(original) || ''}
+    rawValue={getTraceInfoOutputsRaw(original) || ''}
   />
 );

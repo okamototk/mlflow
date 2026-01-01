@@ -36,6 +36,7 @@ import {
   getDefaultActiveTab,
   getTotalTokens,
   convertOtelAttributesToMap,
+  extractChatContentText,
 } from './ModelTraceExplorer.utils';
 import { TEST_SPAN_FILTER_STATE } from './timeline-tree/TimelineTree.test-utils';
 
@@ -351,6 +352,77 @@ describe('normalizeConversation', () => {
       normalizeConversation({ messages: [{ role: 'assistant', tool_calls: [{ id: 'hello', type: 'yay' }] }] }),
     ).toBeNull();
   });
+
+  it('defaults to OpenAI formats (including Responses output) when format is missing', () => {
+    const openAIResponsesOutput = {
+      object: 'response',
+      output: [
+        {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'The capital of France is Paris.' }],
+        },
+      ],
+    };
+
+    expect(normalizeConversation(openAIResponsesOutput)).toMatchObject([
+      {
+        type: 'message',
+        role: 'assistant',
+        content: 'The capital of France is Paris.',
+      },
+    ]);
+  });
+});
+
+describe('extractChatContentText', () => {
+  it('extracts user content from inputs', () => {
+    expect(extractChatContentText(MOCK_OPENAI_CHAT_INPUT, 'inputs', 'openai')).toEqual('tell me a joke in 50 words');
+  });
+
+  it('extracts assistant content from outputs', () => {
+    expect(extractChatContentText(MOCK_OPENAI_CHAT_OUTPUT, 'outputs', 'openai')).toEqual(
+      'Why did the scarecrow win an award? Because he was outstanding in his field!',
+    );
+  });
+
+  it('extracts text from OTEL GenAI messages nested in an object', () => {
+    const otelMessages = [
+      {
+        role: 'system',
+        parts: [{ type: 'text', content: 'You are a helpful AI Agent that can help plan vacations for customers at random destinations.' }],
+      },
+      {
+        role: 'user',
+        parts: [{ type: 'text', content: '岡山への旅行プラン。一人で予算30000円' }],
+      },
+    ];
+
+    expect(extractChatContentText({ value: otelMessages }, 'inputs', 'openai')).toEqual(
+      'You are a helpful AI Agent that can help plan vacations for customers at random destinations.\n岡山への旅行プラン。一人で予算30000円',
+    );
+  });
+
+  it('extracts text from stringified OTEL GenAI messages', () => {
+    const otelMessages = [
+      {
+        role: 'system',
+        parts: [{ type: 'text', content: 'You are a helpful AI Agent that can help plan vacations for customers at random destinations.' }],
+      },
+      {
+        role: 'user',
+        parts: [{ type: 'text', content: '岡山への旅行プラン。一人で予算30000円' }],
+      },
+    ];
+
+    expect(extractChatContentText(JSON.stringify(otelMessages), 'inputs', 'openai')).toEqual(
+      'You are a helpful AI Agent that can help plan vacations for customers at random destinations.\n岡山への旅行プラン。一人で予算30000円',
+    );
+  });
+
+  it('returns null for non-chat objects', () => {
+    expect(extractChatContentText({ foo: 'bar' }, 'inputs', 'openai')).toBeNull();
+  });
 });
 
 describe('isModelTraceChatTool', () => {
@@ -491,6 +563,29 @@ describe('normalizeNewSpanData', () => {
           },
         },
       ],
+    } as any;
+
+    const normalized = normalizeNewSpanData(otelSpan, 0, 0, [], {}, '');
+
+    expect(normalized.inputs).toEqual(otelMessages);
+  });
+
+  it('should populate inputs from gen_ai.input.messages attribute when spanInputs missing', () => {
+    const otelMessages = [
+      {
+        role: 'user',
+        parts: [{ type: 'text', content: 'Hello from attributes' }],
+      },
+    ];
+
+    const otelSpan = {
+      ...MOCK_V3_SPANS[0],
+      attributes: {
+        ...MOCK_V3_SPANS[0].attributes,
+        'mlflow.spanInputs': undefined,
+        'mlflow.spanOutputs': undefined,
+        'gen_ai.input.messages': JSON.stringify(otelMessages),
+      },
     } as any;
 
     const normalized = normalizeNewSpanData(otelSpan, 0, 0, [], {}, '');
@@ -784,8 +879,21 @@ describe('getDefaultActiveTab', () => {
   });
 
   it('should return content if the node has inputs or outputs', () => {
-    const normalSpan = normalizeNewSpanData(MOCK_V3_SPANS[0], 0, 0, [], {}, '');
-    expect(getDefaultActiveTab(normalSpan)).toBe('content');
+    const nonChatSpan: ModelTraceSpanNode = {
+      key: 'span',
+      title: 'span',
+      children: [],
+      start: 0,
+      end: 1,
+      type: ModelSpanType.UNKNOWN,
+      attributes: {},
+      events: [],
+      assessments: [],
+      traceId: 'trace',
+      inputs: { foo: 'bar' },
+      outputs: { baz: 'qux' },
+    };
+    expect(getDefaultActiveTab(nonChatSpan)).toBe('content');
   });
 
   it('should return attributes if the node has no chat messages or inputs or outputs', () => {

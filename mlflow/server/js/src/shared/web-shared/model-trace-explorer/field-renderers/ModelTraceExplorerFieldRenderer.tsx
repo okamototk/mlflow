@@ -42,12 +42,15 @@ export const ModelTraceExplorerFieldRenderer = ({
   }, [data]);
 
   const dataIsScalar = isString(parsedData) || isNumber(parsedData) || isBoolean(parsedData);
-  // wrap the value in an object with the title as key. this helps normalizeConversation
-  // recognize the format, as this util function was designed to receive the whole input
-  // object rather than value by value. it does not work for complex cases where we need
-  // to check multiple keys in the object (e.g. anthropic), but works for cases where we're
-  // basically just looking for the field that contains chat messages.
-  const chatMessages = normalizeConversation(title ? { [title]: parsedData } : parsedData, chatMessageFormat);
+
+  // We typically receive data value-by-value (from `createListFromObject`), so we sometimes
+  // need to wrap it with the field title to restore the original object shape.
+  // However, for formats like OTEL GenAI messages the value itself is the message array,
+  // and wrapping it (e.g. `{ messages: [...] }`) prevents `normalizeConversation` from
+  // recognizing it. Try the raw value first, then fall back to the wrapped version.
+  const chatMessages =
+    normalizeConversation(parsedData, chatMessageFormat) ??
+    (title ? normalizeConversation({ [title]: parsedData }, chatMessageFormat) : null);
   const isChatTools = Array.isArray(parsedData) && parsedData.length > 0 && every(parsedData, isModelTraceChatTool);
   const isRetrieverDocuments =
     Array.isArray(parsedData) && parsedData.length > 0 && every(parsedData, isRetrieverDocument);

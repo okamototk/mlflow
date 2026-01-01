@@ -4,7 +4,7 @@ import { useDesignSystemTheme } from '@databricks/design-system';
 import { FormattedMessage } from '@databricks/i18n';
 
 import type { ModelTrace } from '../ModelTrace.types';
-import { parseModelTraceToTree, createListFromObject } from '../ModelTraceExplorer.utils';
+import { createSummaryInputsOutputsData, parseModelTraceToTree } from '../ModelTraceExplorer.utils';
 import { ModelTraceExplorerChatMessage } from '../right-pane/ModelTraceExplorerChatMessage';
 import { ModelTraceExplorerSummarySection } from '../summary-view/ModelTraceExplorerSummarySection';
 
@@ -42,12 +42,8 @@ export const SingleChatTurnMessages = ({ trace }: { trace: ModelTrace }) => {
   }
 
   // reverse to show the first param before the cutoff
-  const inputList = createListFromObject(rootSpan.inputs)
-    .filter((item) => item.value !== 'null')
-    .reverse();
-  const outputList = createListFromObject(rootSpan.outputs)
-    .filter((item) => item.value !== 'null')
-    .reverse();
+  const inputList = createSummaryInputsOutputsData(rootSpan.inputs, 'inputs', rootSpan.chatMessageFormat).reverse();
+  const outputList = createSummaryInputsOutputsData(rootSpan.outputs, 'outputs', rootSpan.chatMessageFormat).reverse();
 
   return (
     <div css={{ display: 'flex', flexDirection: 'column', gap: theme.spacing.sm }}>

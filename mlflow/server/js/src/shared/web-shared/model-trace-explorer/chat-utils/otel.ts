@@ -63,6 +63,69 @@ export const isOtelGenAIChatMessage = (obj: unknown): obj is OtelGenAIMessage =>
   return (obj as any).parts.every(isSupportedOtelPart);
 };
 
+/**
+ * Extract plain text content from OTEL GenAI messages.
+ *
+ * This is used for compact "Inputs" / "Outputs" previews (e.g. trace table and summary view)
+ * where we only want human-readable text and want to omit tool call structures.
+ */
+export const extractTextFromOtelGenAIMessages = (messages: unknown): string | null => {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return null;
+  }
+
+  if (!messages.every(isOtelGenAIChatMessage)) {
+    return null;
+  }
+
+  const textParts: string[] = [];
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (isOtelTextPart(part)) {
+        textParts.push(part.content);
+      }
+    }
+  }
+
+  const text = textParts.join('\n');
+  return text.trim().length > 0 ? text : null;
+};
+
+/**
+ * Extract plain text content from OTEL GenAI messages, prefixed by role.
+ *
+ * Example:
+ *   system: You are...
+ *   user: Hello
+ */
+export const extractRoleLabeledTextFromOtelGenAIMessages = (messages: unknown): string | null => {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return null;
+  }
+
+  if (!messages.every(isOtelGenAIChatMessage)) {
+    return null;
+  }
+
+  const lines: string[] = [];
+  for (const message of messages) {
+    const textParts: string[] = [];
+    for (const part of message.parts) {
+      if (isOtelTextPart(part)) {
+        textParts.push(part.content);
+      }
+    }
+
+    const text = textParts.join('\n').trim();
+    if (text.length > 0) {
+      lines.push(`${message.role}: ${text}`);
+    }
+  }
+
+  const text = lines.join('\n');
+  return text.trim().length > 0 ? text : null;
+};
+
 const normalizeToolCallRequestPart = (part: OtelToolCallRequestPart): ModelTraceToolCall => {
   const args = get(part, 'arguments') as unknown;
   let argumentsStr = '';

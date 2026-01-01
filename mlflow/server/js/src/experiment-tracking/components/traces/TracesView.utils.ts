@@ -2,6 +2,8 @@ import { type ModelTraceInfo } from '@databricks/web-shared/model-trace-explorer
 import { type MessageDescriptor, defineMessage } from 'react-intl';
 import { isNil } from 'lodash';
 
+import { extractTextFromOtelGenAIMessages } from '../../../shared/web-shared/model-trace-explorer/chat-utils';
+
 const TRACE_METADATA_FIELD_RUN_ID = 'mlflow.sourceRun';
 const TRACE_METADATA_FIELD_TOTAL_TOKENS = 'total_tokens';
 const TRACE_METADATA_FIELD_INPUTS = 'mlflow.traceInputs';
@@ -26,25 +28,41 @@ export const getTraceInfoRunId = (traceInfo: ModelTraceInfo) =>
 export const getTraceInfoTotalTokens = (traceInfo: ModelTraceInfo) =>
   getTraceMetadataField(traceInfo, TRACE_METADATA_FIELD_TOTAL_TOKENS);
 
+export const getTraceInfoInputsRaw = (traceInfo: ModelTraceInfo) =>
+  getTraceMetadataField(traceInfo, TRACE_METADATA_FIELD_INPUTS);
+
 export const getTraceInfoInputs = (traceInfo: ModelTraceInfo) => {
-  const inputs = getTraceMetadataField(traceInfo, TRACE_METADATA_FIELD_INPUTS);
+  const inputs = getTraceInfoInputsRaw(traceInfo);
   if (isNil(inputs)) {
     return undefined;
   }
   try {
-    return JSON.stringify(JSON.parse(inputs)); // unescape non-ascii characters
+    const parsed = JSON.parse(inputs);
+    const otelText = extractTextFromOtelGenAIMessages(parsed);
+    if (otelText) {
+      return otelText;
+    }
+    return JSON.stringify(parsed); // unescape non-ascii characters
   } catch (e) {
     return inputs;
   }
 };
 
+export const getTraceInfoOutputsRaw = (traceInfo: ModelTraceInfo) =>
+  getTraceMetadataField(traceInfo, TRACE_METADATA_FIELD_OUTPUTS);
+
 export const getTraceInfoOutputs = (traceInfo: ModelTraceInfo) => {
-  const outputs = getTraceMetadataField(traceInfo, TRACE_METADATA_FIELD_OUTPUTS);
+  const outputs = getTraceInfoOutputsRaw(traceInfo);
   if (isNil(outputs)) {
     return undefined;
   }
   try {
-    return JSON.stringify(JSON.parse(outputs)); // unescape non-ascii characters
+    const parsed = JSON.parse(outputs);
+    const otelText = extractTextFromOtelGenAIMessages(parsed);
+    if (otelText) {
+      return otelText;
+    }
+    return JSON.stringify(parsed); // unescape non-ascii characters
   } catch (e) {
     return outputs;
   }

@@ -5,7 +5,7 @@ import { FormattedMessage } from '@databricks/i18n';
 
 import { ModelTraceExplorerSummaryViewExceptionsSection } from './ModelTraceExplorerSummaryViewExceptionsSection';
 import { type ModelTraceSpanNode } from '../ModelTrace.types';
-import { createListFromObject, getSpanExceptionEvents } from '../ModelTraceExplorer.utils';
+import { createSummaryInputsOutputsData, getSpanExceptionEvents } from '../ModelTraceExplorer.utils';
 import { ModelTraceExplorerCollapsibleSection } from '../ModelTraceExplorerCollapsibleSection';
 import { useModelTraceExplorerViewState } from '../ModelTraceExplorerViewStateContext';
 import { SpanNameDetailViewLink } from '../assessments-pane/SpanNameDetailViewLink';
@@ -24,10 +24,16 @@ export const ModelTraceExplorerSummaryIntermediateNode = ({
 }) => {
   const { theme } = useDesignSystemTheme();
   const [expanded, setExpanded] = useState(false);
-  const inputList = useMemo(() => createListFromObject(node.inputs), [node]);
-  const outputList = useMemo(() => createListFromObject(node.outputs), [node]);
+  const inputList = useMemo(
+    () => createSummaryInputsOutputsData(node.inputs, 'inputs', node.chatMessageFormat),
+    [node.inputs, node.chatMessageFormat],
+  );
+  const outputList = useMemo(
+    () => createSummaryInputsOutputsData(node.outputs, 'outputs', node.chatMessageFormat),
+    [node.outputs, node.chatMessageFormat],
+  );
   const exceptionEvents = getSpanExceptionEvents(node);
-  const chatMessageFormat = node.chatMessageFormat;
+  const chatMessageFormat = node.chatMessageFormat ?? 'openai';
 
   const hasException = exceptionEvents.length > 0;
   const containsInputs = inputList.length > 0;
